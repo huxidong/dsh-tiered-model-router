@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-export const ROUTER_SETTINGS_NAMESPACE = 'dsh-tiered-model-router'
+const ROUTER_SETTINGS_NAMESPACE = 'dsh-tiered-model-router'
 
 const TIERS = ['easy', 'standard', 'hard']
 const TIER_LABELS = { easy: 'Easy', standard: 'Standard', hard: 'Hard' }
@@ -209,7 +209,7 @@ function PolicyEditor({ policy, onChange }) {
 }
 
 /** DSH settings-section component. All values arrive through slot injection. */
-export function TieredRouterSection(props) {
+function TieredRouterSection(props) {
   const { scope, useSnapshot } = props
   if (!scope || typeof useSnapshot !== 'function') return null
   const snapshot = useSnapshot((value) => value)
@@ -244,8 +244,10 @@ export function TieredRouterSection(props) {
       const operations = operationsForDraft(draft)
       if (typeof scope.mutate === 'function') {
         await scope.mutate(operations)
-      } else if (typeof scope.set === 'function') {
-        for (const operation of operations) await scope.set(operation.path.join('.'), operation.value)
+      } else if (typeof scope.replace === 'function') {
+        // Compatibility with an older SettingsScope surface. New DSH builds
+        // use mutate so optional fields can be explicitly unset atomically.
+        await scope.replace(valueForSave(draft))
       } else {
         throw new Error('当前 DSH 版本不支持设置写入')
       }
@@ -258,11 +260,12 @@ export function TieredRouterSection(props) {
   }
 
   const resetAll = async () => {
-    if (saving || typeof scope.mutate !== 'function') return
+    if (saving || (typeof scope.mutate !== 'function' && typeof scope.replace !== 'function')) return
     setSaving(true)
     setError('')
     try {
-      await scope.mutate([{ op: 'unset', path: [] }])
+      if (typeof scope.mutate === 'function') await scope.mutate([{ op: 'unset', path: [] }])
+      else await scope.replace({})
       setDirty(false)
     } catch (resetError) {
       setError(String(resetError?.message ?? resetError ?? '重置失败'))
@@ -301,7 +304,7 @@ export function TieredRouterSection(props) {
     }),
     React.createElement('div', { style: styles.actions },
       React.createElement('button', { type: 'button', style: styles.button, onClick: reset, disabled: saving || !dirty }, '放弃修改'),
-      React.createElement('button', { type: 'button', style: styles.button, onClick: resetAll, disabled: saving || !ready || typeof scope.mutate !== 'function' }, '恢复组合配置'),
+      React.createElement('button', { type: 'button', style: styles.button, onClick: resetAll, disabled: saving || !ready || (typeof scope.mutate !== 'function' && typeof scope.replace !== 'function') }, '恢复组合配置'),
       React.createElement('button', { type: 'button', style: { ...styles.button, ...styles.primary }, onClick: save, disabled: saving || !ready || !dirty }, saving ? '保存中…' : '保存'),
     ),
   )

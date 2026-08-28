@@ -17,15 +17,25 @@
     "./classifier": "./src/classifier.js",
     "./config": "./src/config.js",
     "./route": "./src/route.js",
-    "./client": "./lib/client.js"
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
   },
-  "files": ["src", "lib/client.js", "tests", "examples", "README.md", "README.zh.md", "cordis.patch.yml"],
+  "files": [
+    "src",
+    "lib/client.js",
+    "tests",
+    "examples",
+    "README.md",
+    "README.zh.md",
+    "cordis.patch.yml"
+  ],
   "scripts": {
     "test": "node --test",
     "test:unit": "node --test tests/*.test.js",
     "test:dsh": "node --test tests/dsh-integration.test.js",
     "verify:package": "node scripts/verify-package.mjs",
-    "prepack": "npm run verify:package",
+    "build:client": "node scripts/build-client.mjs",
+    "prepack": "npm run build:client && npm run verify:package",
     "package": "node scripts/package.mjs"
   },
   "engines": {
@@ -34,11 +44,20 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1"
   },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0",
     "@deepseek-ai/dsh-agent": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-llm": ">=0.0.1-rc.1 <0.2.0",
-    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1 <0.2.0"
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1 <0.2.0",
+    "@deepseek-ai/dsh-settings": ">=0.1.0-rc.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.1 <0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-settings": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-settings": { "optional": true }
   },
   "dsh": {
     "bundle": {
@@ -46,7 +65,9 @@
     },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-ui-settings"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   },
   "license": "MIT"

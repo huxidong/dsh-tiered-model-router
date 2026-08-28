@@ -22,6 +22,7 @@ async function loadBundle() {
 test('browser bundle registers a native settings section without a DOM', async () => {
   const plugin = await loadBundle()
   assert.deepEqual(Array.from(plugin.inject), ['slots', 'settingsScope'])
+  assert.equal('TieredRouterSection' in plugin, false)
   const registrations = []
   const scope = { getSnapshot: () => ({ status: 'unavailable', value: undefined }), subscribe: () => () => {} }
   const ctx = {
