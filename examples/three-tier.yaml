@@ -1,0 +1,26 @@
+enabled: true
+tiers:
+  easy:
+    provider: deepseek-official
+    model: dsh-fast
+    reasoningEffort: low
+  standard:
+    provider: deepseek-official
+    model: dsh-standard
+    reasoningEffort: high
+  hard:
+    provider: deepseek-official
+    model: dsh-strong
+    reasoningEffort: max
+policy:
+  defaultTier: standard
+  preserveExplicitSelection: true
+  takeOverUnknownSelection: false
+  routeSubagents: false
+  standardAtStep: 2
+  hardAtStep: 3
+  hardAfterToolFailures: 2
+  standardAtChars: 500
+  hardAtChars: 2500
+  preserveMaxTokens: true
+  clearReasoningEffortWhenUnset: true

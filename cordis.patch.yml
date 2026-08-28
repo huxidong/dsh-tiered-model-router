@@ -1,0 +1,30 @@
+- insert:
+    - id: dsh-tiered-model-router
+      name: dsh-tiered-model-router
+      config:
+        enabled: true
+        tiers:
+          easy:
+            provider: your-provider
+            model: your-easy-model
+            reasoningEffort: low
+          standard:
+            provider: your-provider
+            model: your-standard-model
+            reasoningEffort: high
+          hard:
+            provider: your-provider
+            model: your-hard-model
+            reasoningEffort: max
+        policy:
+          defaultTier: standard
+          preserveExplicitSelection: true
+          takeOverUnknownSelection: false
+          routeSubagents: false
+          standardAtStep: 2
+          hardAtStep: 3
+          hardAfterToolFailures: 2
+          standardAtChars: 500
+          hardAtChars: 2500
+          preserveMaxTokens: true
+          clearReasoningEffortWhenUnset: true
