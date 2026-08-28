@@ -13,7 +13,7 @@ npm run package
 dsh plugin --profile web add .\dist\dsh-tiered-model-router-0.1.0.tgz
 ```
 
-`dsh plugin` 会把插件安装到指定 profile，并自动识别包内声明的 `cordis.patch.yml`。安装或升级后重启对应的 DSH profile；之后打开 Web 设置中的“模型路由”页面即可修改三档 provider、model、reasoning effort 和路由策略。设置会保存到 DSH Settings，实时影响后续请求，不需要手动编辑 YAML。
+`dsh plugin` 会把插件安装到指定 profile，并自动识别包内声明的 `cordis.patch.yml`。安装或升级后重启对应的 DSH profile；之后打开 Web 设置中的“模型路由”页面即可修改三档 provider、model、reasoning effort、阈值、开关、关键词列表以及工具失败策略。设置会保存到 DSH Settings，实时影响后续请求，不需要手动编辑 YAML。
 
 如果只想从源码目录安装，也可以执行 `dsh plugin --profile web add .`。发布到 npm 后则把本地 tarball 换成包名，例如 `dsh plugin --profile web add dsh-tiered-model-router`。
 

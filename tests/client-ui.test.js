@@ -41,9 +41,11 @@ test('settings section renders and persists a changed model route', { skip: !bro
       routeSubagents: false, standardAtStep: 2, hardAtStep: 3, hardAfterToolFailures: 2,
       standardAtChars: 500, hardAtChars: 2500, preserveMaxTokens: true,
       clearReasoningEffortWhenUnset: true,
+      easyKeywords: ['hello'], standardKeywords: ['code'], hardKeywords: ['production'],
+      hardTools: ['apply_patch'], failureExclude: ['todo_write'],
     },
   }
-  let snapshot = { status: 'ready', value: initial, writable: true, mode: 'host' }
+  let snapshot = { status: 'ready', value: initial, base: initial, writable: true, mode: 'host' }
   const listeners = new Set()
   const operations = []
   const scope = {
@@ -94,12 +96,28 @@ test('settings section renders and persists a changed model route', { skip: !bro
     await act(async () => {
       Simulate.change(standardChars, { target: { value: '600' } })
     })
+    const easyKeywords = [...dom.window.document.querySelectorAll('textarea')].find((textarea) => textarea.value === 'hello')
+    assert.ok(easyKeywords)
+    await act(async () => {
+      Simulate.change(easyKeywords, { target: { value: 'hello\nhi' } })
+    })
     const saveButton = [...dom.window.document.querySelectorAll('button')].find((button) => button.textContent === '保存')
     assert.ok(saveButton)
     await act(async () => { saveButton.click() })
     assert.ok(operations.some((operation) => operation.op === 'set' && operation.path.join('.') === 'tiers.easy.model' && operation.value === 'easy-new'))
     assert.ok(operations.some((operation) => operation.op === 'set' && operation.path.join('.') === 'tiers.hard.model' && operation.value === 'hard-new'))
     assert.ok(operations.some((operation) => operation.op === 'set' && operation.path.join('.') === 'policy.standardAtChars' && operation.value === 600))
+    assert.ok(operations.some((operation) => operation.op === 'set' && operation.path.join('.') === 'policy.easyKeywords' && operation.value.join(',') === 'hello,hi'))
+
+    snapshot = { ...snapshot, writable: false }
+    await act(async () => { for (const listener of listeners) listener() })
+    assert.equal([...dom.window.document.querySelectorAll('input')].some((input) => input.disabled), true)
+    assert.equal([...dom.window.document.querySelectorAll('button')].find((button) => button.textContent === '保存').disabled, true)
+
+    snapshot = { status: 'loading', value: undefined, base: initial, writable: true, mode: 'host' }
+    await act(async () => { for (const listener of listeners) listener() })
+    assert.ok([...dom.window.document.querySelectorAll('input')].find((input) => input.value === 'easy-old'))
+    assert.equal([...dom.window.document.querySelectorAll('button')].find((button) => button.textContent === '恢复组合配置').disabled, false)
     await act(async () => { root.unmount() })
   } finally {
     for (const [key, value] of Object.entries(previous)) {

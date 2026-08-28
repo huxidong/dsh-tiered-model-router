@@ -17,7 +17,14 @@ const DEFAULT_POLICY = {
   hardAtChars: 2500,
   preserveMaxTokens: true,
   clearReasoningEffortWhenUnset: true,
+  easyKeywords: [],
+  standardKeywords: [],
+  hardKeywords: [],
+  hardTools: [],
+  failureExclude: [],
 }
+
+const POLICY_LIST_KEYS = ['easyKeywords', 'standardKeywords', 'hardKeywords', 'hardTools', 'failureExclude']
 
 const styles = {
   section: { display: 'flex', flexDirection: 'column', gap: 20, padding: '24px 28px', maxWidth: 920 },
@@ -32,6 +39,7 @@ const styles = {
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 },
   field: { display: 'flex', flexDirection: 'column', gap: 6 },
   input: { width: '100%', boxSizing: 'border-box', border: '1px solid var(--dsw-border-default, #d0d5dd)', borderRadius: 6, padding: '8px 10px', font: 'inherit', color: 'var(--dsw-fg-primary, #1f2329)', background: 'var(--dsw-bg-input, #fff)' },
+  textarea: { width: '100%', minHeight: 82, boxSizing: 'border-box', border: '1px solid var(--dsw-border-default, #d0d5dd)', borderRadius: 6, padding: '8px 10px', font: 'inherit', lineHeight: 1.4, resize: 'vertical', color: 'var(--dsw-fg-primary, #1f2329)', background: 'var(--dsw-bg-input, #fff)' },
   select: { width: '100%', boxSizing: 'border-box', border: '1px solid var(--dsw-border-default, #d0d5dd)', borderRadius: 6, padding: '8px 10px', font: 'inherit', color: 'var(--dsw-fg-primary, #1f2329)', background: 'var(--dsw-bg-input, #fff)' },
   check: { display: 'flex', alignItems: 'flex-start', gap: 9, minHeight: 32 },
   actions: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, paddingTop: 4 },
@@ -46,7 +54,23 @@ function isRecord(value) {
 }
 
 function clone(value) {
-  try { return structuredClone(value) } catch { return value }
+  try { return structuredClone(value) } catch {
+    try { return JSON.parse(JSON.stringify(value)) } catch {
+      if (Array.isArray(value)) return [...value]
+      if (isRecord(value)) return { ...value }
+      return value
+    }
+  }
+}
+
+function listText(value) {
+  if (Array.isArray(value)) return value.filter((item) => typeof item === 'string').join('\n')
+  return typeof value === 'string' ? value : ''
+}
+
+function parseList(value) {
+  if (Array.isArray(value)) return value.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
+  return String(value ?? '').split(/[\n,]/).map((item) => item.trim()).filter(Boolean)
 }
 
 function draftFromValue(value) {
@@ -62,6 +86,7 @@ function draftFromValue(value) {
     const route = isRecord(tiers[tier]) ? tiers[tier] : {}
     result.tiers[tier] = {
       ...DEFAULT_ROUTE,
+      ...clone(route),
       provider: typeof route.provider === 'string' ? route.provider : '',
       model: typeof route.model === 'string' ? route.model : '',
       reasoningEffort: typeof route.reasoningEffort === 'string' ? route.reasoningEffort : '',
@@ -70,9 +95,13 @@ function draftFromValue(value) {
   }
   for (const [key, fallback] of Object.entries(DEFAULT_POLICY)) {
     const candidate = policy[key]
-    if (typeof fallback === 'boolean') result.policy[key] = typeof candidate === 'boolean' ? candidate : fallback
+    if (Array.isArray(fallback)) result.policy[key] = listText(candidate)
+    else if (typeof fallback === 'boolean') result.policy[key] = typeof candidate === 'boolean' ? candidate : fallback
     else if (key === 'defaultTier') result.policy[key] = TIERS.includes(candidate) ? candidate : fallback
     else result.policy[key] = Number.isSafeInteger(candidate) && candidate >= 1 ? candidate : fallback
+  }
+  for (const [key, candidate] of Object.entries(policy)) {
+    if (!(key in result.policy)) result.policy[key] = clone(candidate)
   }
   return result
 }
@@ -83,11 +112,15 @@ function numberOrFallback(value, fallback) {
 }
 
 function routeValue(route) {
-  const result = { provider: String(route.provider ?? '').trim(), model: String(route.model ?? '').trim() }
+  const result = isRecord(route) ? clone(route) : {}
+  result.provider = String(route.provider ?? '').trim()
+  result.model = String(route.model ?? '').trim()
   const effort = String(route.reasoningEffort ?? '').trim()
   if (effort) result.reasoningEffort = effort
+  else delete result.reasoningEffort
   const maxTokens = numberOrFallback(route.maxTokens, 0)
   if (maxTokens > 0) result.maxTokens = maxTokens
+  else delete result.maxTokens
   return result
 }
 
@@ -100,6 +133,7 @@ function valueForSave(draft) {
   policy.hardAtChars = numberOrFallback(policy.hardAtChars, DEFAULT_POLICY.hardAtChars)
   if (policy.hardAtChars < policy.standardAtChars) policy.hardAtChars = policy.standardAtChars
   if (policy.hardAtStep < policy.standardAtStep) policy.hardAtStep = policy.standardAtStep
+  for (const key of POLICY_LIST_KEYS) policy[key] = parseList(policy[key])
   return {
     enabled: Boolean(draft.enabled),
     tiers: Object.fromEntries(TIERS.map((tier) => [tier, routeValue(draft.tiers[tier])])),
@@ -158,9 +192,23 @@ function field(props, label, value, onChange, type = 'text', extra = {}) {
   )
 }
 
-function checkbox(key, label, checked, onChange, hint) {
+function listField(key, label, value, onChange, placeholder, disabled) {
+  return React.createElement('label', { style: styles.field, key },
+    React.createElement('span', { style: styles.hint }, label),
+    React.createElement('textarea', {
+      style: styles.textarea,
+      value: value ?? '',
+      onChange,
+      placeholder,
+      disabled,
+      spellCheck: false,
+    }),
+  )
+}
+
+function checkbox(key, label, checked, onChange, hint, disabled = false) {
   return React.createElement('label', { key, style: styles.check },
-    React.createElement('input', { type: 'checkbox', checked: Boolean(checked), onChange, style: { marginTop: 3 } }),
+    React.createElement('input', { type: 'checkbox', checked: Boolean(checked), onChange, disabled, style: { marginTop: 3 } }),
     React.createElement('span', null,
       React.createElement('span', { style: styles.label }, label),
       hint ? React.createElement('div', { style: styles.hint }, hint) : null,
@@ -168,42 +216,53 @@ function checkbox(key, label, checked, onChange, hint) {
   )
 }
 
-function RouteEditor({ tier, route, onChange }) {
+function RouteEditor({ tier, route, onChange, disabled }) {
   const update = (key) => (event) => onChange(key, event.target.value)
   return React.createElement('div', { style: styles.group, key: tier },
     React.createElement('h3', { style: styles.groupTitle }, TIER_LABELS[tier]),
     React.createElement('div', { style: styles.grid },
-      field(`${tier}-provider`, 'Provider', route.provider, update('provider'), 'text', { placeholder: '例如 openai' }),
-      field(`${tier}-model`, 'Model', route.model, update('model'), 'text', { placeholder: '例如 dsh-fast' }),
-      field(`${tier}-effort`, 'Reasoning effort', route.reasoningEffort, update('reasoningEffort'), 'text', { placeholder: 'low / medium / high' }),
-      field(`${tier}-tokens`, 'Max tokens（可选）', route.maxTokens, update('maxTokens'), 'number', { min: 1, step: 1, placeholder: '留空表示沿用' }),
+      field(`${tier}-provider`, 'Provider', route.provider, update('provider'), 'text', { placeholder: '例如 openai', disabled }),
+      field(`${tier}-model`, 'Model', route.model, update('model'), 'text', { placeholder: '例如 dsh-fast', disabled }),
+      field(`${tier}-effort`, 'Reasoning effort', route.reasoningEffort, update('reasoningEffort'), 'text', { placeholder: 'low / medium / high', disabled }),
+      field(`${tier}-tokens`, 'Max tokens（可选）', route.maxTokens, update('maxTokens'), 'number', { min: 1, step: 1, placeholder: '留空表示沿用', disabled }),
     ),
   )
 }
 
-function PolicyEditor({ policy, onChange }) {
+function PolicyEditor({ policy, onChange, disabled }) {
   const set = (key) => (event) => onChange(key, event.target.type === 'checkbox' ? event.target.checked : event.target.value)
   return React.createElement('div', { style: styles.group },
     React.createElement('h3', { style: styles.groupTitle }, 'Routing policy'),
     React.createElement('div', { style: styles.grid },
       React.createElement('label', { style: styles.field },
         React.createElement('span', { style: styles.hint }, 'Default tier'),
-        React.createElement('select', { style: styles.select, value: policy.defaultTier, onChange: set('defaultTier') },
+        React.createElement('select', { style: styles.select, value: policy.defaultTier, onChange: set('defaultTier'), disabled },
           TIERS.map((tier) => React.createElement('option', { key: tier, value: tier }, TIER_LABELS[tier])),
         ),
       ),
-      field('standard-step', 'Standard at step', policy.standardAtStep, set('standardAtStep'), 'number', { min: 1, step: 1 }),
-      field('hard-step', 'Hard at step', policy.hardAtStep, set('hardAtStep'), 'number', { min: 1, step: 1 }),
-      field('tool-failures', 'Hard after tool failures', policy.hardAfterToolFailures, set('hardAfterToolFailures'), 'number', { min: 1, step: 1 }),
-      field('standard-chars', 'Standard at characters', policy.standardAtChars, set('standardAtChars'), 'number', { min: 1, step: 1 }),
-      field('hard-chars', 'Hard at characters', policy.hardAtChars, set('hardAtChars'), 'number', { min: 1, step: 1 }),
+      field('standard-step', 'Standard at step', policy.standardAtStep, set('standardAtStep'), 'number', { min: 1, step: 1, disabled }),
+      field('hard-step', 'Hard at step', policy.hardAtStep, set('hardAtStep'), 'number', { min: 1, step: 1, disabled }),
+      field('tool-failures', 'Hard after tool failures', policy.hardAfterToolFailures, set('hardAfterToolFailures'), 'number', { min: 1, step: 1, disabled }),
+      field('standard-chars', 'Standard at characters', policy.standardAtChars, set('standardAtChars'), 'number', { min: 1, step: 1, disabled }),
+      field('hard-chars', 'Hard at characters', policy.hardAtChars, set('hardAtChars'), 'number', { min: 1, step: 1, disabled }),
     ),
     React.createElement('div', { style: { display: 'grid', gap: 8 } },
-      checkbox('preserve-explicit', '保留手动选择的模型', policy.preserveExplicitSelection, set('preserveExplicitSelection'), '识别到用户手动指定的 provider/model 时不接管。'),
-      checkbox('take-over-unknown', '接管未知的手动模型', policy.takeOverUnknownSelection, set('takeOverUnknownSelection'), '关闭时，未知模型继续由用户选择。'),
-      checkbox('subagents', '路由子代理', policy.routeSubagents, set('routeSubagents')),
-      checkbox('preserve-max', '保留手动 max tokens', policy.preserveMaxTokens, set('preserveMaxTokens')),
-      checkbox('clear-effort', '未配置 reasoning effort 时清除旧值', policy.clearReasoningEffortWhenUnset, set('clearReasoningEffortWhenUnset')),
+      checkbox('preserve-explicit', '保留手动选择的模型', policy.preserveExplicitSelection, set('preserveExplicitSelection'), '识别到用户手动指定的 provider/model 时不接管。', disabled),
+      checkbox('take-over-unknown', '接管未知的手动模型', policy.takeOverUnknownSelection, set('takeOverUnknownSelection'), '关闭时，未知模型继续由用户选择。', disabled),
+      checkbox('subagents', '路由子代理', policy.routeSubagents, set('routeSubagents'), undefined, disabled),
+      checkbox('preserve-max', '保留手动 max tokens', policy.preserveMaxTokens, set('preserveMaxTokens'), undefined, disabled),
+      checkbox('clear-effort', '未配置 reasoning effort 时清除旧值', policy.clearReasoningEffortWhenUnset, set('clearReasoningEffortWhenUnset'), undefined, disabled),
+    ),
+    React.createElement('div', { style: styles.group },
+      React.createElement('h3', { style: styles.groupTitle }, 'Matching lists'),
+      React.createElement('p', { style: styles.hint }, '每行一个，也可以用逗号分隔；留空表示关闭该类匹配。'),
+      React.createElement('div', { style: styles.grid },
+        listField('easy-keywords', 'Easy keywords', policy.easyKeywords, set('easyKeywords'), '例如：hello\n翻译', disabled),
+        listField('standard-keywords', 'Standard keywords', policy.standardKeywords, set('standardKeywords'), '例如：code\n文件', disabled),
+        listField('hard-keywords', 'Hard keywords', policy.hardKeywords, set('hardKeywords'), '例如：production\n迁移', disabled),
+        listField('hard-tools', 'Hard tools', policy.hardTools, set('hardTools'), '例如：apply_patch\nshell', disabled),
+        listField('failure-exclude', 'Ignored tool failures', policy.failureExclude, set('failureExclude'), '例如：todo_write', disabled),
+      ),
     ),
   )
 }
@@ -214,15 +273,21 @@ function TieredRouterSection(props) {
   if (!scope || typeof useSnapshot !== 'function') return null
   const snapshot = useSnapshot((value) => value)
   const value = snapshot?.value
+  const fallbackValue = isRecord(snapshot?.base) ? snapshot.base : undefined
+  const resolvedValue = isRecord(value) ? value : fallbackValue
   const ready = snapshot?.status === 'ready' && isRecord(value)
-  const [draft, setDraft] = useState(() => draftFromValue(value))
+  const writable = snapshot?.writable === true
+  const editable = ready && writable
+  const resettable = writable && isRecord(resolvedValue)
+    && (typeof scope.mutate === 'function' || typeof scope.replace === 'function')
+  const [draft, setDraft] = useState(() => draftFromValue(resolvedValue))
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!dirty && ready) setDraft(draftFromValue(value))
-  }, [value, ready, dirty])
+    if (!dirty && resolvedValue) setDraft(draftFromValue(resolvedValue))
+  }, [value, fallbackValue, resolvedValue, dirty])
 
   const changed = (path, nextValue) => {
     setDraft((previous) => setNested(previous, path, nextValue))
@@ -231,13 +296,18 @@ function TieredRouterSection(props) {
   }
 
   const reset = () => {
-    setDraft(draftFromValue(value))
+    setDraft(draftFromValue(resolvedValue))
     setDirty(false)
     setError('')
   }
 
   const save = async () => {
-    if (saving || !ready) return
+    if (saving || !editable) return
+    const invalidTier = TIERS.find((tier) => !String(draft.tiers[tier]?.provider ?? '').trim() || !String(draft.tiers[tier]?.model ?? '').trim())
+    if (invalidTier) {
+      setError(`${TIER_LABELS[invalidTier]} requires both Provider and Model`)
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -260,7 +330,7 @@ function TieredRouterSection(props) {
   }
 
   const resetAll = async () => {
-    if (saving || (typeof scope.mutate !== 'function' && typeof scope.replace !== 'function')) return
+    if (saving || !resettable) return
     setSaving(true)
     setError('')
     try {
@@ -277,9 +347,11 @@ function TieredRouterSection(props) {
   const statusNotice = useMemo(() => {
     if (snapshot?.status === 'loading') return '正在读取 DSH 设置…'
     if (snapshot?.status === 'unavailable') return '当前运行模式没有可写的 DSH Settings 服务；页面保持只读。'
+    if (!ready && fallbackValue) return '持久化设置不可用，当前显示组合配置；可恢复组合配置来清除用户覆盖。'
     if (!ready) return '配置尚未就绪，暂时不会修改模型路由。'
+    if (!writable) return '当前 DSH Settings 为只读，页面仅供查看。'
     return ''
-  }, [snapshot?.status, ready])
+  }, [snapshot?.status, ready, fallbackValue, writable])
 
   return React.createElement('div', { style: styles.section },
     React.createElement('div', null,
@@ -289,23 +361,25 @@ function TieredRouterSection(props) {
     statusNotice ? React.createElement('div', { style: styles.notice }, statusNotice) : null,
     error ? React.createElement('div', { style: { ...styles.notice, ...styles.error }, role: 'alert' }, error) : null,
     React.createElement('div', { style: styles.toolbar },
-      checkbox('enabled', '启用自动模型路由', draft.enabled, (event) => changed(['enabled'], event.target.checked), '关闭后保留设置，但请求直接沿用 DSH 当前模型。'),
+      checkbox('enabled', '启用自动模型路由', draft.enabled, (event) => changed(['enabled'], event.target.checked), '关闭后保留设置，但请求直接沿用 DSH 当前模型。', !editable),
       dirty ? React.createElement('span', { style: styles.hint }, '有未保存的修改') : null,
     ),
     TIERS.map((tier) => React.createElement(RouteEditor, {
       key: tier,
       tier,
       route: draft.tiers[tier],
+      disabled: !editable,
       onChange: (key, next) => changed(['tiers', tier, key], next),
     })),
     React.createElement(PolicyEditor, {
       policy: draft.policy,
+      disabled: !editable,
       onChange: (key, next) => changed(['policy', key], next),
     }),
     React.createElement('div', { style: styles.actions },
       React.createElement('button', { type: 'button', style: styles.button, onClick: reset, disabled: saving || !dirty }, '放弃修改'),
-      React.createElement('button', { type: 'button', style: styles.button, onClick: resetAll, disabled: saving || !ready || (typeof scope.mutate !== 'function' && typeof scope.replace !== 'function') }, '恢复组合配置'),
-      React.createElement('button', { type: 'button', style: { ...styles.button, ...styles.primary }, onClick: save, disabled: saving || !ready || !dirty }, saving ? '保存中…' : '保存'),
+      React.createElement('button', { type: 'button', style: styles.button, onClick: resetAll, disabled: saving || !resettable }, '恢复组合配置'),
+      React.createElement('button', { type: 'button', style: { ...styles.button, ...styles.primary }, onClick: save, disabled: saving || !editable || !dirty }, saving ? '保存中…' : '保存'),
     ),
   )
 }

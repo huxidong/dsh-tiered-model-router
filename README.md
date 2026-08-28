@@ -23,7 +23,7 @@ npm run package
 dsh plugin --profile web add .\dist\dsh-tiered-model-router-0.1.0.tgz
 ```
 
-Restart the profile after installing or upgrading the bundle. Then open the Web Settings page named `模型路由` to edit all three routes and the routing policy. Changes are persisted through DSH Settings and apply to later requests without editing YAML.
+Restart the profile after installing or upgrading the bundle. Then open the Web Settings page named `模型路由` to edit all three routes, thresholds, toggles, keyword lists, and hard-tool/failure policies. Changes are persisted through DSH Settings and apply to later requests without editing YAML.
 
 For a source checkout, `dsh plugin --profile web add .` is also supported. After publishing to npm, use `dsh plugin --profile web add dsh-tiered-model-router`.
 
