@@ -1,5 +1,6 @@
 import Schema from '@deepseek-ai/schemastery'
 import { TIERS, TIER_RANK } from './types.js'
+import { DEFAULT_REASONING_LEVEL_ORDER } from './reasoning.js'
 
 const DEFAULT_HARD_KEYWORDS = [
   'architecture', 'architect', 'migration', 'security', 'vulnerability',
@@ -55,6 +56,9 @@ export const Config = Schema.object({
     hardAfterToolFailures: Schema.number(),
     preserveMaxTokens: Schema.boolean(),
     clearReasoningEffortWhenUnset: Schema.boolean(),
+    maxRoutingDepth: Schema.number(),
+    reasoningFallback: Schema.string(),
+    reasoningLevelOrder: Schema.array(Schema.string()),
     standardAtChars: Schema.number(),
     hardAtChars: Schema.number(),
     easyKeywords: Schema.array(Schema.string()),
@@ -77,6 +81,9 @@ const defaults = Object.freeze({
     hardAfterToolFailures: 2,
     preserveMaxTokens: true,
     clearReasoningEffortWhenUnset: true,
+    maxRoutingDepth: 3,
+    reasoningFallback: 'next-higher',
+    reasoningLevelOrder: DEFAULT_REASONING_LEVEL_ORDER,
     standardAtChars: 500,
     hardAtChars: 2500,
     easyKeywords: DEFAULT_EASY_KEYWORDS,
@@ -92,9 +99,11 @@ function nonEmptyString(value) { return typeof value === 'string' && value.trim(
 function positiveInteger(value, fallback) {
   return Number.isSafeInteger(value) && value >= 1 ? value : fallback
 }
-function normalizeList(value, fallback) {
+function normalizeList(value, fallback, options = {}) {
   if (!Array.isArray(value)) return [...fallback]
-  return value.filter(nonEmptyString).map((item) => item.trim().toLocaleLowerCase())
+  const normalized = value.filter(nonEmptyString).map((item) => item.trim().toLocaleLowerCase())
+  if (options.preserveDefaults !== true) return normalized
+  return [...new Set([...fallback, ...normalized])]
 }
 function normalizeRoute(value) {
   if (!isRecord(value) || !nonEmptyString(value.provider) || !nonEmptyString(value.model)) return undefined
@@ -132,13 +141,20 @@ export function normalizeConfig(input) {
     standardAtStep: positiveInteger(policyInput.standardAtStep, defaults.policy.standardAtStep),
     hardAtStep: positiveInteger(policyInput.hardAtStep, defaults.policy.hardAtStep),
     hardAfterToolFailures: positiveInteger(policyInput.hardAfterToolFailures, defaults.policy.hardAfterToolFailures),
+    maxRoutingDepth: positiveInteger(policyInput.maxRoutingDepth, defaults.policy.maxRoutingDepth),
     standardAtChars: Math.min(standardAtChars, hardAtChars),
     hardAtChars: Math.max(hardAtChars, standardAtChars),
     easyKeywords: normalizeList(policyInput.easyKeywords, defaults.policy.easyKeywords),
     standardKeywords: normalizeList(policyInput.standardKeywords, defaults.policy.standardKeywords),
-    hardKeywords: normalizeList(policyInput.hardKeywords, defaults.policy.hardKeywords),
+    // Built-in hard signals are a safety floor. User-provided keywords extend
+    // this list, but cannot accidentally remove the Chinese/English defaults.
+    hardKeywords: normalizeList(policyInput.hardKeywords, defaults.policy.hardKeywords, { preserveDefaults: true }),
     hardTools: normalizeList(policyInput.hardTools, defaults.policy.hardTools),
     failureExclude: normalizeList(policyInput.failureExclude, defaults.policy.failureExclude),
+    reasoningFallback: ['next-higher', 'nearest', 'none'].includes(policyInput.reasoningFallback)
+      ? policyInput.reasoningFallback
+      : defaults.policy.reasoningFallback,
+    reasoningLevelOrder: normalizeList(policyInput.reasoningLevelOrder, defaults.policy.reasoningLevelOrder),
   }
   for (const key of ['preserveExplicitSelection', 'takeOverUnknownSelection', 'routeSubagents', 'preserveMaxTokens', 'clearReasoningEffortWhenUnset']) {
     policy[key] = typeof policy[key] === 'boolean' ? policy[key] : defaults.policy[key]

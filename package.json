@@ -1,6 +1,6 @@
 {
   "name": "dsh-tiered-model-router",
-  "version": "0.1.0",
+  "version": "0.1.8",
   "description": "Robust three-tier local model router for DeepSeek Harness",
   "repository": {
     "type": "git",
@@ -56,8 +56,12 @@
     "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.1 <0.2.0"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-settings": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-settings": { "optional": true }
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    }
   },
   "dsh": {
     "bundle": {

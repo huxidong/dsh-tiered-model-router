@@ -14,6 +14,12 @@ function fakeContext() {
   }
 }
 
+function fakeLlmContext(llm) {
+  const ctx = fakeContext()
+  ctx.get = (name) => name === 'llm' ? llm : undefined
+  return ctx
+}
+
 function fakeSettingsContext(initial) {
   const listeners = new Map()
   let current = structuredClone(initial)
@@ -87,11 +93,21 @@ test('missing event fields and missing next callback fail open', async () => {
   assert.deepEqual(await request({}, undefined), {})
 })
 
-test('unknown explicit route is preserved by default', async () => {
+test('an enabled router takes over an existing unknown route', async () => {
   const ctx = fakeContext()
   installDshAdapter(ctx, baseConfig())
   const subject = agent({ provider: 'custom', model: 'manual' })
   await ctx.listeners.get('agent/pre-step')({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  const current = { provider: 'custom', model: 'manual', temperature: 0.3 }
+  assert.deepEqual(await ctx.listeners.get('agent/request')({ agent: subject, turn: 1, step: 1 }, async () => current), {
+    provider: 'p', model: 'easy', temperature: 0.3,
+  })
+})
+
+test('a disabled router preserves the manually selected route', async () => {
+  const ctx = fakeContext()
+  installDshAdapter(ctx, { ...baseConfig(), enabled: false })
+  const subject = agent({ provider: 'custom', model: 'manual' })
   const current = { provider: 'custom', model: 'manual', temperature: 0.3 }
   assert.deepEqual(await ctx.listeners.get('agent/request')({ agent: subject, turn: 1, step: 1 }, async () => current), current)
 })
@@ -132,4 +148,31 @@ test('settings integration is fail-open when a stored value is unusable', async 
   await ctx.listeners.get('agent/pre-step')({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
   const routed = await ctx.listeners.get('agent/request')({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))
   assert.equal(routed.model, 'easy')
+})
+
+test('adapter raises an unsupported effort to the next declared model level', async () => {
+  const ctx = fakeLlmContext({
+    resolveModelInfo: async () => ({
+      reasoning: {
+        efforts: [{ id: 'off' }, { id: 'high' }],
+        defaultEffort: 'high',
+      },
+    }),
+  })
+  installDshAdapter(ctx, baseConfig())
+  const subject = agent()
+  await ctx.listeners.get('agent/pre-step')({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  const routed = await ctx.listeners.get('agent/request')({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))
+  assert.equal(routed.model, 'easy')
+  assert.equal(routed.reasoningEffort, 'high')
+})
+
+test('adapter does not crash when capability lookup fails', async () => {
+  const ctx = fakeLlmContext({ resolveModelInfo: async () => { throw new Error('offline') } })
+  installDshAdapter(ctx, baseConfig())
+  const subject = agent()
+  await ctx.listeners.get('agent/pre-step')({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  const routed = await ctx.listeners.get('agent/request')({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))
+  assert.equal(routed.model, 'easy')
+  assert.equal('reasoningEffort' in routed, false)
 })

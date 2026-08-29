@@ -7,6 +7,7 @@ const upstream = process.env.DSH_UPSTREAM_DIR ?? 'C:/Users/X13/AppData/Local/Tem
 const load = (relative) => import(pathToFileURL(`${upstream}/${relative}`).href)
 
 const router = await import('../src/index.js')
+const { modelSelectionProjectionDefinition } = await import('../src/model-selection-projection.js')
 const dshAvailable = existsSync(`${upstream}/packages/core/agent-loop/lib/index.js`)
 const dsh = dshAvailable
   ? await Promise.all([
@@ -110,9 +111,14 @@ test('real DSH loop receives routed request and records changed request header',
   assert.equal(adapter.requests[0].model, 'dsh-fast')
   assert.equal(adapter.requests[0].reasoningEffort, 'low')
   assert.ok(subject.session.events.some((event) => event.type === 'request/header' && event.data.header.config.model === 'dsh-fast'))
+  const projections = ctx.get?.('sessionProjections')
+  if (projections && typeof projections.snapshot === 'function') {
+    const value = projections.snapshot(subject.session)?.values?.['dsh-tiered-model-router.modelSelection']
+    assert.deepEqual(value?.lastUsed, { provider: 'p', model: 'dsh-fast', reasoningEffort: 'low' })
+  }
 })
 
-test('real DSH loop preserves an explicitly selected unknown route', { skip: !dshAvailable }, async () => {
+test('real DSH loop takes over an existing unknown route in automatic mode', { skip: !dshAvailable }, async () => {
   const { ctx, adapter } = await makeHarness({
     tiers: {
       easy: { provider: 'p', model: 'dsh-fast' },
@@ -124,7 +130,31 @@ test('real DSH loop preserves an explicitly selected unknown route', { skip: !ds
   send(subject, 'hello')
   await subject.whenIdle()
   assert.equal(adapter.requests.length, 1)
-  assert.equal(adapter.requests[0].model, 'manual-model')
+  assert.equal(adapter.requests[0].model, 'dsh-fast')
+})
+
+test('real DSH hard routing wins over a later agent-scoped model picker', { skip: !dshAvailable }, async () => {
+  const { ctx, adapter } = await makeHarness({
+    tiers: {
+      easy: { provider: 'p', model: 'dsh-fast' },
+      standard: { provider: 'p', model: 'dsh-standard' },
+      hard: { provider: 'p', model: 'dsh-strong' },
+    },
+  })
+  // Mirrors the web model seat: it is agent-scoped and restores the session
+  // model after downstream request middleware resolves.
+  ctx.on('agent/created', ({ agent: subject }) => {
+    subject.ctx.on('agent/request', async (_payload, next) => ({
+      ...await next(),
+      provider: 'p',
+      model: 'dsh-standard',
+    }))
+  })
+  const subject = ctx.agentLoop.create(session.SessionId('router-hard-picker'), { provider: 'p', model: 'dsh-standard' })
+  send(subject, 'Design a production database migration with concurrency control, rollback, and security risk analysis.')
+  await subject.whenIdle()
+  assert.equal(adapter.requests.length, 1)
+  assert.equal(adapter.requests[0].model, 'dsh-strong')
 })
 
 test('real DSH Settings registration overrides and updates routing live', { skip: !dshAvailable }, async () => {
@@ -165,4 +195,23 @@ test('malformed persisted settings do not disable the composition route', { skip
   send(subject, 'hello')
   await subject.whenIdle()
   assert.equal(adapter.requests.at(-1).model, 'composition-easy')
+})
+
+test('model selection projection exposes the post-routing model', () => {
+  let state = modelSelectionProjectionDefinition.init()
+  state = modelSelectionProjectionDefinition.apply(state, {
+    type: 'request/header',
+    data: { header: { config: { provider: 'glm', model: 'glm-5.3-flash' } } },
+  })
+  assert.deepEqual(modelSelectionProjectionDefinition.view(state), {
+    lastUsed: { provider: 'glm', model: 'glm-5.3-flash' },
+    pending: { provider: 'glm', model: 'glm-5.3-flash' },
+  })
+  state = modelSelectionProjectionDefinition.apply(state, {
+    type: 'assistant/message',
+    data: { message: { source: { kind: 'model', provider: 'glm', model: 'glm-5.3-flash' } } },
+  })
+  assert.deepEqual(modelSelectionProjectionDefinition.view(state), {
+    lastUsed: { provider: 'glm', model: 'glm-5.3-flash' },
+  })
 })

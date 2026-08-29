@@ -1,5 +1,4 @@
 import { maxTier } from './classifier.js'
-import { tierForRoute } from './config.js'
 
 export function createStateStore() {
   const states = new WeakMap()
@@ -11,15 +10,14 @@ export function createStateStore() {
 }
 
 export function beginTurn(store, agent, turn, classifiedTier, config) {
-  const currentRoute = agent?.options
-  const recognized = tierForRoute(currentRoute, config.tiers) !== undefined
-  const managed = !config.policy.preserveExplicitSelection
-    || config.policy.takeOverUnknownSelection
-    || recognized
-    || !currentRoute?.provider || !currentRoute?.model
+  // The enabled setting is the source of truth for ownership. The model-seat
+  // UI turns it off before a manual selection, so an enabled router must also
+  // take over a host's pre-existing/unknown route instead of showing Auto while
+  // silently forwarding that route unchanged.
+  const managed = config.enabled !== false
   const state = {
     turn, tier: classifiedTier, initialTier: classifiedTier, managed,
-    consecutiveToolFailures: 0, lastRequestStep: 0,
+    consecutiveToolFailures: 0, lastRequestStep: 0, routingDepth: 0,
   }
   store.set(agent, state)
   return state

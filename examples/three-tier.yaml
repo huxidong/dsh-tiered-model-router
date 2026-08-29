@@ -14,8 +14,6 @@ tiers:
     reasoningEffort: max
 policy:
   defaultTier: standard
-  preserveExplicitSelection: true
-  takeOverUnknownSelection: false
   routeSubagents: false
   standardAtStep: 2
   hardAtStep: 3
@@ -24,3 +22,5 @@ policy:
   hardAtChars: 2500
   preserveMaxTokens: true
   clearReasoningEffortWhenUnset: true
+  reasoningFallback: next-higher
+  reasoningLevelOrder: [off, low, medium, high, xhigh, max, ultra]
