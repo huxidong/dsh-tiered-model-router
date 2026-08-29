@@ -18,7 +18,9 @@
             reasoningEffort: max
         policy:
           defaultTier: standard
-          routeSubagents: false
+          routeSubagents: true
+          cacheAwareRouting: true
+          escalateOnSteps: false
           standardAtStep: 2
           hardAtStep: 3
           hardAfterToolFailures: 2

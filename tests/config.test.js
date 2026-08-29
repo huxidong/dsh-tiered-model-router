@@ -14,6 +14,9 @@ test('normalizes valid config and clamps inconsistent thresholds', () => {
   assert.equal(config.policy.standardAtChars, 100)
   assert.equal(config.policy.hardAtChars, 3000)
   assert.equal(tierForRoute({ provider: 'p', model: 'hard' }, config.tiers), 'hard')
+  assert.equal(config.policy.routeSubagents, true)
+  assert.equal(config.policy.cacheAwareRouting, true)
+  assert.equal(config.policy.escalateOnSteps, false)
 })
 
 test('malformed or identical routes request fail-open mode', () => {

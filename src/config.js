@@ -51,6 +51,8 @@ export const Config = Schema.object({
     preserveExplicitSelection: Schema.boolean(),
     takeOverUnknownSelection: Schema.boolean(),
     routeSubagents: Schema.boolean(),
+    cacheAwareRouting: Schema.boolean(),
+    escalateOnSteps: Schema.boolean(),
     standardAtStep: Schema.number(),
     hardAtStep: Schema.number(),
     hardAfterToolFailures: Schema.number(),
@@ -75,7 +77,18 @@ const defaults = Object.freeze({
     defaultTier: 'standard',
     preserveExplicitSelection: true,
     takeOverUnknownSelection: false,
-    routeSubagents: false,
+    // DSH subagents are independent sessions, so they need their own route
+    // decision instead of inheriting whichever model started the parent.
+    routeSubagents: true,
+  // Provider prompt caches are normally scoped to a concrete model. Keep a
+  // session on its current tier (including the model selected at the first
+  // request) unless real difficulty signals require an upgrade; bouncing
+  // between tiers destroys otherwise reusable prefixes.
+    cacheAwareRouting: true,
+    // Step count alone says little about task difficulty and used to force a
+    // model switch during ordinary tool loops. It remains opt-in for users
+    // who value aggressive escalation over prompt-cache continuity.
+    escalateOnSteps: false,
     standardAtStep: 2,
     hardAtStep: 3,
     hardAfterToolFailures: 2,
@@ -156,7 +169,11 @@ export function normalizeConfig(input) {
       : defaults.policy.reasoningFallback,
     reasoningLevelOrder: normalizeList(policyInput.reasoningLevelOrder, defaults.policy.reasoningLevelOrder),
   }
-  for (const key of ['preserveExplicitSelection', 'takeOverUnknownSelection', 'routeSubagents', 'preserveMaxTokens', 'clearReasoningEffortWhenUnset']) {
+  for (const key of [
+    'preserveExplicitSelection', 'takeOverUnknownSelection', 'routeSubagents',
+    'cacheAwareRouting', 'escalateOnSteps', 'preserveMaxTokens',
+    'clearReasoningEffortWhenUnset',
+  ]) {
     policy[key] = typeof policy[key] === 'boolean' ? policy[key] : defaults.policy[key]
   }
   return Object.freeze({ enabled: input.enabled !== false, tiers: Object.freeze(tiers), policy: Object.freeze(policy) })

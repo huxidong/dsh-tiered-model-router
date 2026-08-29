@@ -11,7 +11,9 @@ const TIER_LABELS = { easy: '简单', standard: '标准', hard: '困难' }
 const DEFAULT_ROUTE = { provider: '', model: '', reasoningEffort: '', maxTokens: '' }
 const DEFAULT_POLICY = {
   defaultTier: 'standard',
-  routeSubagents: false,
+  routeSubagents: true,
+  cacheAwareRouting: true,
+  escalateOnSteps: false,
   standardAtStep: 2,
   hardAtStep: 3,
   hardAfterToolFailures: 2,
@@ -843,6 +845,8 @@ function PolicyEditor({ policy, onChange, disabled }) {
     ),
     React.createElement('div', { style: { display: 'grid', gap: 8 } },
       checkbox('subagents', '路由子代理', policy.routeSubagents, set('routeSubagents'), undefined, disabled),
+      checkbox('cache-aware-routing', '优先保持模型稳定', policy.cacheAwareRouting, set('cacheAwareRouting'), '同一会话不会因简单新消息自动降档，减少模型切换造成的缓存失效。', disabled),
+      checkbox('escalate-on-steps', '按步骤自动升档', policy.escalateOnSteps, set('escalateOnSteps'), '关闭时，普通工具循环保持首个判定档位；硬工具和连续失败仍会升档。', disabled),
       checkbox('preserve-max', '保留手动最大输出令牌数', policy.preserveMaxTokens, set('preserveMaxTokens'), undefined, disabled),
       checkbox('clear-effort', '未配置推理等级时清除旧值', policy.clearReasoningEffortWhenUnset, set('clearReasoningEffortWhenUnset'), undefined, disabled),
     ),

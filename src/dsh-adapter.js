@@ -1,5 +1,5 @@
 import { classifyTask } from './classifier.js'
-import { Config, normalizeConfig } from './config.js'
+import { Config, normalizeConfig, tierForRoute } from './config.js'
 import { rewriteCallConfig } from './route.js'
 import { resolveReasoningEffort } from './reasoning.js'
 import { beginTurn, createStateStore, escalate } from './state.js'
@@ -22,7 +22,27 @@ function matchesTool(name, patterns) {
   })
 }
 function isSubagent(agent) {
+  const header = agent?.session?.header
+  // `AgentOptions` deliberately has no parent field. DSH records the durable
+  // subagent lineage on the Session header, which also survives restoration.
+  if (header?.origin !== undefined) return header.origin === 'subagent'
+  // Older DSH objects exposed parent fields directly. Do not use
+  // `parentSession` alone here: ordinary session forks also carry it.
   return Boolean(agent?.parent || agent?.parentAgent || agent?.options?.parent)
+}
+function currentRouteOf(agent) {
+  try {
+    const header = typeof agent?.session?.requestHeader === 'function'
+      ? agent.session.requestHeader()
+      : agent?.session?.header
+    const config = header?.config
+    if (config && typeof config === 'object') return config
+  } catch { /* a missing/restoring header must not block classification */ }
+  // AgentOptions is only the seed for a brand-new session. It has not created
+  // a provider cache yet, so using it as a sticky tier would suppress the
+  // router's first useful classification. Only a durable request header (the
+  // model that actually handled an earlier request) is cache-relevant.
+  return undefined
 }
 function passPreStep(payload, next) {
   if (typeof next === 'function') return next()
@@ -137,8 +157,10 @@ export function installDshAdapter(ctx, rawConfig) {
     const agent = payload?.agent
     const state = store.get(agent)
     if (!state || state.turn !== payload?.turn || (isSubagent(agent) && !config.policy.routeSubagents)) return resolved
-    if (payload.step >= config.policy.hardAtStep) escalate(state, 'hard')
-    else if (payload.step >= config.policy.standardAtStep) escalate(state, 'standard')
+    if (config.policy.escalateOnSteps === true) {
+      if (payload.step >= config.policy.hardAtStep) escalate(state, 'hard')
+      else if (payload.step >= config.policy.standardAtStep) escalate(state, 'standard')
+    }
     if (!state.managed) return resolved
     const route = config.tiers[state.tier]
     if (!route) return resolved
@@ -204,7 +226,8 @@ export function installDshAdapter(ctx, rawConfig) {
       let state = store.get(payload.agent)
       if (!state || state.turn !== payload.turn) {
         const classification = classifyTask(payload.messages, config.policy)
-        state = beginTurn(store, payload.agent, payload.turn, classification.tier, config)
+        const currentTier = tierForRoute(currentRouteOf(payload.agent), config.tiers)
+        state = beginTurn(store, payload.agent, payload.turn, classification.tier, config, currentTier)
       }
     } catch (error) {
       safeLog(ctx, 'dsh-tiered-model-router classification failed; passing through', error)

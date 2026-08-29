@@ -5,6 +5,8 @@ A native DeepSeek Harness plugin that locally classifies each turn as `easy`, `s
 ## Design
 
 - Pure deterministic classifier with configurable keywords and length thresholds.
+- Cache-aware session stability: a route stays on its current tier unless the
+  new task or an actual failure/hard-tool signal requires an upgrade.
 - One-way escalation within a turn: `easy -> standard -> hard`.
 - Tool failures and configured hard tools can escalate to `hard`.
 - When automatic routing is enabled, the configured three-tier routes own the
@@ -39,8 +41,11 @@ The default tier is `standard`. Clearly simple prompts can use `easy`; code, fil
 
 The legacy `preserveExplicitSelection` and `takeOverUnknownSelection` fields
 remain accepted for configuration compatibility, but automatic mode is now
-unambiguous: the router takes ownership while enabled. `routeSubagents` is off
-by default.
+unambiguous: the router takes ownership while enabled. Subagents are routed by
+default, and the cache-aware policy keeps a session from automatically
+downgrading to a different model. Step-count escalation is opt-in because it
+would otherwise switch models in a normal tool loop and reduce provider prompt
+cache hits.
 
 Run `npm test` to execute both pure logic tests and the local real-DSH integration checks. The integration test uses a mock adapter and does not require model credentials or network model calls.
 

@@ -56,7 +56,7 @@ function fakeSettingsContext(initial) {
     },
   }
 }
-function agent(options = { provider: 'p', model: 'standard' }) { return { options } }
+function agent(options = { provider: 'p', model: 'standard' }, extra = {}) { return { options, ...extra } }
 function baseConfig(extra = {}) {
   return {
     tiers: {
@@ -121,6 +121,86 @@ test('configured hard tool escalates even when it succeeds', async () => {
   result({ agent: subject, name: 'apply_patch' }, { isError: false })
   const routed = await ctx.listeners.get('agent/request')({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'easy' }))
   assert.equal(routed.model, 'hard')
+})
+
+test('cache-aware routing holds an upgraded session tier across later turns', async () => {
+  const ctx = fakeContext()
+  installDshAdapter(ctx, baseConfig())
+  const subject = agent()
+  const preStep = ctx.listeners.get('agent/pre-step')
+  const request = ctx.listeners.get('agent/request')
+  await preStep({ agent: subject, turn: 1, step: 1, messages: [{ content: 'production migration with concurrency control' }] }, async () => ({ kind: 'enter', messages: [] }))
+  assert.equal((await request({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))).model, 'hard')
+  await preStep({ agent: subject, turn: 2, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  assert.equal((await request({ agent: subject, turn: 2, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))).model, 'hard')
+})
+
+test('cache-aware routing keeps the first request on an already selected higher tier', async () => {
+  const ctx = fakeContext()
+  installDshAdapter(ctx, baseConfig())
+  const subject = agent({ provider: 'p', model: 'hard' }, {
+    session: { requestHeader: () => ({ config: { provider: 'p', model: 'hard' } }) },
+  })
+  const preStep = ctx.listeners.get('agent/pre-step')
+  const request = ctx.listeners.get('agent/request')
+  await preStep({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  assert.equal((await request({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'hard' }))).model, 'hard')
+})
+
+test('cache-aware routing can be disabled when per-turn downshifts are preferred', async () => {
+  const ctx = fakeContext()
+  installDshAdapter(ctx, baseConfig({ cacheAwareRouting: false }))
+  const subject = agent()
+  const preStep = ctx.listeners.get('agent/pre-step')
+  const request = ctx.listeners.get('agent/request')
+  await preStep({ agent: subject, turn: 1, step: 1, messages: [{ content: 'production migration with concurrency control' }] }, async () => ({ kind: 'enter', messages: [] }))
+  assert.equal((await request({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))).model, 'hard')
+  await preStep({ agent: subject, turn: 2, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  assert.equal((await request({ agent: subject, turn: 2, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))).model, 'easy')
+})
+
+test('ordinary later steps do not change the model unless step escalation is enabled', async () => {
+  const ctx = fakeContext()
+  installDshAdapter(ctx, baseConfig())
+  const subject = agent()
+  const preStep = ctx.listeners.get('agent/pre-step')
+  const request = ctx.listeners.get('agent/request')
+  await preStep({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  assert.equal((await request({ agent: subject, turn: 1, step: 3 }, async () => ({ provider: 'p', model: 'easy' }))).model, 'easy')
+})
+
+test('subagent sessions use their own task route by default', async () => {
+  const ctx = fakeContext()
+  installDshAdapter(ctx, baseConfig())
+  const subject = agent({ provider: 'p', model: 'standard' }, {
+    session: { header: { origin: 'subagent', parentSession: 'parent-session' } },
+  })
+  await ctx.listeners.get('agent/pre-step')({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  const routed = await ctx.listeners.get('agent/request')({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))
+  assert.equal(routed.model, 'easy')
+})
+
+test('subagent routing can be explicitly disabled', async () => {
+  const ctx = fakeContext()
+  installDshAdapter(ctx, baseConfig({ routeSubagents: false }))
+  const subject = agent({ provider: 'p', model: 'standard' }, {
+    session: { header: { origin: 'subagent', parentSession: 'parent-session' } },
+  })
+  const current = { provider: 'p', model: 'standard' }
+  await ctx.listeners.get('agent/pre-step')({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  assert.deepEqual(await ctx.listeners.get('agent/request')({ agent: subject, turn: 1, step: 1 }, async () => current), current)
+})
+
+test('a normal session fork with only parentSession is not treated as a subagent', async () => {
+  const ctx = fakeContext()
+  installDshAdapter(ctx, baseConfig({ routeSubagents: false }))
+  const subject = agent({ provider: 'p', model: 'standard' }, {
+    session: { header: { parentSession: 'forked-session' } },
+  })
+  const preStep = ctx.listeners.get('agent/pre-step')
+  const request = ctx.listeners.get('agent/request')
+  await preStep({ agent: subject, turn: 1, step: 1, messages: [{ content: 'hello' }] }, async () => ({ kind: 'enter', messages: [] }))
+  assert.equal((await request({ agent: subject, turn: 1, step: 1 }, async () => ({ provider: 'p', model: 'standard' }))).model, 'easy')
 })
 
 test('invalid config installs a no-op adapter', () => {

@@ -157,6 +157,42 @@ test('real DSH hard routing wins over a later agent-scoped model picker', { skip
   assert.equal(adapter.requests[0].model, 'dsh-strong')
 })
 
+test('real DSH routing keeps an upgraded session on one model for cache continuity', { skip: !dshAvailable }, async () => {
+  const { ctx, adapter } = await makeHarness({
+    tiers: {
+      easy: { provider: 'p', model: 'dsh-fast' },
+      standard: { provider: 'p', model: 'dsh-standard' },
+      hard: { provider: 'p', model: 'dsh-strong' },
+    },
+  })
+  const subject = ctx.agentLoop.create(session.SessionId('router-cache-stability'), { provider: 'p', model: 'dsh-standard' })
+  send(subject, 'Design a production migration with concurrency control and rollback.')
+  await subject.whenIdle()
+  send(subject, 'hello')
+  await subject.whenIdle()
+  assert.deepEqual(adapter.requests.map((request) => request.model), ['dsh-strong', 'dsh-strong'])
+})
+
+test('real DSH routes a child session from its own task by default', { skip: !dshAvailable }, async () => {
+  const { ctx, adapter } = await makeHarness({
+    tiers: {
+      easy: { provider: 'p', model: 'dsh-fast' },
+      standard: { provider: 'p', model: 'dsh-standard' },
+      hard: { provider: 'p', model: 'dsh-strong' },
+    },
+  })
+  const parent = ctx.agentLoop.create(session.SessionId('router-parent'), { provider: 'p', model: 'dsh-standard' })
+  const childHandle = await ctx.agentLoop.createAgent(ctx, {
+    sessionId: session.SessionId('router-child'),
+    agentOptions: { provider: 'p', model: 'dsh-standard' },
+    meta: { parentSession: parent.id, origin: 'subagent', delegationDepth: 1 },
+  })
+  send(childHandle.agent, 'hello')
+  await childHandle.agent.whenIdle()
+  assert.equal(adapter.requests.at(-1).model, 'dsh-fast')
+  await childHandle.dispose()
+})
+
 test('real DSH Settings registration overrides and updates routing live', { skip: !dshAvailable }, async () => {
   const config = {
     tiers: {
